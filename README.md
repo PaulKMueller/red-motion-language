@@ -6,9 +6,8 @@ TL;DR: Transformer model for motion prediction that incorporates two types of re
 
 RedMotion model. Our model consists of two encoders. The ego trajectory encoder generates an embedding for the past trajectory of the ego agent. The road environment encoder generates a set of road environment descriptors as context embedding. Both embeddings are fused via cross-attention to yield trajectory proposals per agent.
 
-## Getting started  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1vC5lqRVicGsmx8bkSlxrH4Tm9cTUr4e9?usp=sharing)
-
-Open the Colab notebook above for a demo of our REDMotion model. The demo shows how to create a dataset, run inference, and visualize the predicted trajectories.
+## Getting started 
+Coming soon...
 
 ## Prepare waymo open motion prediction dataset
 Register and download the dataset from [here](https://waymo.com/open).
