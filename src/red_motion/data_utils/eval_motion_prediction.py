@@ -274,6 +274,9 @@ def run_waymo_eval_per_class(
         model.road_env_encoder.range_decoder_embedding = torch.arange(100).expand(
             1, 100
         )
+        model.range_global_decoder_embedding = torch.arange(100).expand(
+            1, 100
+        )
 
     res_per_class = pd.DataFrame()
     n_prediction_horizons = len(prediction_horizons)
