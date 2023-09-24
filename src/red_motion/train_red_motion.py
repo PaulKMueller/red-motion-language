@@ -19,6 +19,7 @@ def main(
     lr: float = 0.01,
     save_dir: str = "./",
     train_hours: float = 4.5,
+    pre_training_checkpoint: str = "",
     prediction_subsampling_rate: int = 2,
     train_sample_limit: int = -1,
     num_nodes: int = 1,
@@ -127,6 +128,9 @@ def main(
         )
 
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
+
+    if pre_training_checkpoint:
+        model.load_state_dict(torch.load(pre_training_checkpoint), strict=False)
 
     trainer = Trainer(
         precision=16,
