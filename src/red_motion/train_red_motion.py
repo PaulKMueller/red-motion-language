@@ -101,6 +101,19 @@ def main(
             prediction_subsampling_rate=prediction_subsampling_rate,
             mode="pre-training",
         )
+    elif run_prefix == "pre-training-learned-aggregation":
+        model = RedMotionCrossFusion(
+            dim_road_env_encoder=128,
+            dim_road_env_attn_window=16,
+            dim_ego_trajectory_encoder=128,
+            num_trajectory_proposals=num_trajectory_proposals,
+            prediction_horizon=prediction_horizon,
+            learning_rate=lr,
+            batch_size=batch_size,
+            prediction_subsampling_rate=prediction_subsampling_rate,
+            mode="pre-training",
+            reduction_feature_aggregation="learned",
+        )
     else:
         model = REDMotionPredictor(
             dim_road_env_encoder=256,

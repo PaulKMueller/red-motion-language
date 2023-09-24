@@ -589,6 +589,7 @@ class RedMotionCrossFusion(pl.LightningModule):
         num_global_env_decoder_layers=6,
         num_heads_global_env_decoder=8,
         reduction_b_z_dim=512,
+        reduction_feature_aggregation: str = "mean-var",
         mode: str = "fine-tuning",
     ) -> None:
         super().__init__()
@@ -659,10 +660,12 @@ class RedMotionCrossFusion(pl.LightningModule):
                 + num_trajectory_proposals,
             ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
         )
-
+        self.reduction_feature_aggregation = reduction_feature_aggregation
+        self.learn_reduction_feats = nn.Linear(in_features=dim_global_env_decoder, out_features=16)
         self.projection_head = nn.Sequential(
             nn.Linear(
-                in_features=size_global_env_decoder_vocab * 2, out_features=4096
+                in_features=size_global_env_decoder_vocab * 2 if reduction_feature_aggregation == "mean-var" else size_global_env_decoder_vocab * 16,
+                out_features=4096
             ),  # Mean, var per token
             nn.BatchNorm1d(4096),
             nn.ReLU(),
@@ -706,17 +709,22 @@ class RedMotionCrossFusion(pl.LightningModule):
             global_env_tokens_b = self.global_env_decoder(
                 global_env_tgt, road_env_tokens_b, env_src_mask
             )
-
-            z_a = self.projection_head(
-                torch.concat(
+            
+            if self.reduction_feature_aggregation == "mean-var":
+                y_a = torch.concat(
                     (global_env_tokens.mean(dim=2), global_env_tokens.var(dim=2)), dim=1
                 )
-            )
-            z_b = self.projection_head(
-                torch.concat(
+                y_b = torch.concat(
                     (global_env_tokens_b.mean(dim=2), global_env_tokens_b.var(dim=2)), dim=1
                 )
-            )
+            elif self.reduction_feature_aggregation == "learned":
+                y_a = self.learn_reduction_feats(global_env_tokens)
+                y_a = y_a.flatten(start_dim=1, end_dim=-1)
+                y_b = self.learn_reduction_feats(global_env_tokens_b)
+                y_b = y_b.flatten(start_dim=1, end_dim=-1)
+
+            z_a = self.projection_head(y_a)
+            z_b = self.projection_head(y_b)
 
             loss = self.reduction_loss(z_a, z_b)
 
