@@ -89,6 +89,18 @@ def main(
             batch_size=batch_size,
             prediction_subsampling_rate=prediction_subsampling_rate,
         )
+    elif run_prefix == "pre-training":
+        model = RedMotionCrossFusion(
+            dim_road_env_encoder=128,
+            dim_road_env_attn_window=16,
+            dim_ego_trajectory_encoder=128,
+            num_trajectory_proposals=num_trajectory_proposals,
+            prediction_horizon=prediction_horizon,
+            learning_rate=lr,
+            batch_size=batch_size,
+            prediction_subsampling_rate=prediction_subsampling_rate,
+            mode="pre-training",
+        )
     else:
         model = REDMotionPredictor(
             dim_road_env_encoder=256,
@@ -133,26 +145,27 @@ def main(
             f"{save_dir}/models/{run_prefix}-{model_name}-{start_time}.pt",
         )
 
-        if prediction_horizon > 50:
-            prediction_horizons = [30, 50, prediction_horizon]
-        else:
-            prediction_horizons = [30, 50]
+        if run_prefix != "pre-training":
+            if prediction_horizon > 50:
+                prediction_horizons = [30, 50, prediction_horizon]
+            else:
+                prediction_horizons = [30, 50]
 
-        pred_metrics, pred_metrics_per_class = run_waymo_eval_per_class(
-            model=model,
-            data=val_path,
-            prediction_horizons=prediction_horizons,
-            red_model=True,
-            prediction_subsampling_rate=prediction_subsampling_rate,
-        )
-        loggers[1].log_table(
-            key="motion_prediction_eval",
-            dataframe=pred_metrics
-        )
-        loggers[1].log_table(
-            key="motion_prediction_eval_per_class",
-            dataframe=pred_metrics_per_class
-        )
+            pred_metrics, pred_metrics_per_class = run_waymo_eval_per_class(
+                model=model,
+                data=val_path,
+                prediction_horizons=prediction_horizons,
+                red_model=True,
+                prediction_subsampling_rate=prediction_subsampling_rate,
+            )
+            loggers[1].log_table(
+                key="motion_prediction_eval",
+                dataframe=pred_metrics
+            )
+            loggers[1].log_table(
+                key="motion_prediction_eval_per_class",
+                dataframe=pred_metrics_per_class
+            )
 
 
 if __name__ == "__main__":

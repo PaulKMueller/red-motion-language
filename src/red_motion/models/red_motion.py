@@ -13,6 +13,7 @@ from .road_env_description import (
 from .dual_motion_vit import pytorch_neg_multi_log_likelihood_batch
 from .transformer_baseline import LocalRoadEnvEncoder
 from .road_env_description import ParallelTransformerDecoder
+from .raster_barlow_twins import BarlowTwinsLoss
 
 
 class RedMotionQuery(pl.LightningModule):
@@ -587,6 +588,8 @@ class RedMotionCrossFusion(pl.LightningModule):
         dim_global_env_decoder=128,
         num_global_env_decoder_layers=6,
         num_heads_global_env_decoder=8,
+        reduction_b_z_dim=512,
+        mode: str = "fine-tuning",
     ) -> None:
         super().__init__()
         self.num_trajectory_proposals = num_trajectory_proposals
@@ -594,6 +597,7 @@ class RedMotionCrossFusion(pl.LightningModule):
         self.prediction_subsampling_rate = prediction_subsampling_rate
         self.lr = learning_rate
         self.epochs = epochs
+        self.mode = mode
 
         self.road_env_encoder = LocalRoadEnvEncoder(
             dim_model=dim_road_env_encoder,
@@ -656,25 +660,30 @@ class RedMotionCrossFusion(pl.LightningModule):
             ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
         )
 
+        self.projection_head = nn.Sequential(
+            nn.Linear(
+                in_features=size_global_env_decoder_vocab * 2, out_features=4096
+            ),  # Mean, var per token
+            nn.BatchNorm1d(4096),
+            nn.ReLU(),
+            nn.Linear(in_features=4096, out_features=reduction_b_z_dim),
+        )
+        self.reduction_loss= BarlowTwinsLoss(
+            batch_size=batch_size, lambda_coeff=5e-3, z_dim=reduction_b_z_dim
+        )
+
     def forward(
         self,
         env_idxs_src_tokens: Tensor,
         env_pos_src_tokens: Tensor,
+        env_idxs_src_tokens_b: Tensor,
+        env_pos_src_tokens_b: Tensor,
         env_src_mask: Tensor,
         ego_idxs_semantic_embedding: Tensor,
         ego_pos_src_tokens: Tensor,
     ):
         road_env_tokens = self.road_env_encoder(
             env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
-        )
-        ego_trajectory_tokens = self.ego_trajectory_encoder(
-            ego_idxs_semantic_embedding, ego_pos_src_tokens
-        )
-
-        fused_local_tokens = self.local_fusion_block(
-            q=ego_trajectory_tokens,
-            k=road_env_tokens,
-            v=road_env_tokens,
         )
 
         self.range_global_decoder_embedding = self.range_global_decoder_embedding.to("cuda")
@@ -688,6 +697,40 @@ class RedMotionCrossFusion(pl.LightningModule):
         )
         global_env_tokens = self.global_env_decoder(
             global_env_tgt, road_env_tokens, env_src_mask
+        )
+
+        if self.mode == "pre-training":
+            road_env_tokens_b = self.road_env_encoder(
+                env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask,
+            )
+            global_env_tokens_b = self.global_env_decoder(
+                global_env_tgt, road_env_tokens_b, env_src_mask
+            )
+
+            z_a = self.projection_head(
+                torch.concat(
+                    (global_env_tokens.mean(dim=2), global_env_tokens.var(dim=2)), dim=1
+                )
+            )
+            z_b = self.projection_head(
+                torch.concat(
+                    (global_env_tokens_b.mean(dim=2), global_env_tokens_b.var(dim=2)), dim=1
+                )
+            )
+
+            loss = self.reduction_loss(z_a, z_b)
+
+            return loss
+
+
+        ego_trajectory_tokens = self.ego_trajectory_encoder(
+            ego_idxs_semantic_embedding, ego_pos_src_tokens
+        )
+
+        fused_local_tokens = self.local_fusion_block(
+            q=ego_trajectory_tokens,
+            k=road_env_tokens,
+            v=road_env_tokens,
         )
 
         # Add fusion tokens
@@ -739,6 +782,8 @@ class RedMotionCrossFusion(pl.LightningModule):
 
         env_idxs_src_tokens = batch["sample_a"]["idx_src_tokens"]
         env_pos_src_tokens = batch["sample_a"]["pos_src_tokens"]
+        env_idxs_src_tokens_b = batch["sample_b"]["idx_src_tokens"]
+        env_pos_src_tokens_b = batch["sample_b"]["pos_src_tokens"]
         env_src_mask = batch["src_attn_mask"]
         ego_idxs_semantic_embedding = batch["past_ego_trajectory"][
             "idx_semantic_embedding"
@@ -759,9 +804,23 @@ class RedMotionCrossFusion(pl.LightningModule):
             ) : self.prediction_horizon : self.prediction_subsampling_rate,
         ]
 
+        if self.mode == "pre-training":
+            loss = self.forward(
+                env_idxs_src_tokens,
+                env_pos_src_tokens,
+                env_idxs_src_tokens_b,
+                env_pos_src_tokens_b,
+                env_src_mask,
+                ego_idxs_semantic_embedding,
+                ego_pos_src_tokens,
+            )
+            return loss
+
         confidences_logits, logits = self.forward(
             env_idxs_src_tokens,
             env_pos_src_tokens,
+            env_idxs_src_tokens_b,
+            env_pos_src_tokens_b,
             env_src_mask,
             ego_idxs_semantic_embedding,
             ego_pos_src_tokens,
