@@ -79,7 +79,7 @@ def main(
             batch_size=batch_size,
             prediction_subsampling_rate=prediction_subsampling_rate,
         )
-    elif run_prefix == "scratch-cross-fusion":
+    elif run_prefix == "scratch-cross-fusion" or run_prefix == "cross-fusion":
         model = RedMotionCrossFusion(
             dim_road_env_encoder=128,
             dim_road_env_attn_window=16,
@@ -162,7 +162,7 @@ def main(
             f"{save_dir}/models/{run_prefix}-{model_name}-{start_time}.pt",
         )
 
-        if run_prefix != "pre-training":
+        if not run_prefix.startswith("pre-training"):
             if prediction_horizon > 50:
                 prediction_horizons = [30, 50, prediction_horizon]
             else:
