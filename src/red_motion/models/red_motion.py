@@ -662,15 +662,26 @@ class RedMotionCrossFusion(pl.LightningModule):
         )
         self.reduction_feature_aggregation = reduction_feature_aggregation
         self.learn_reduction_feats = nn.Linear(in_features=dim_global_env_decoder, out_features=16)
-        self.projection_head = nn.Sequential(
-            nn.Linear(
-                in_features=size_global_env_decoder_vocab * 2 if reduction_feature_aggregation == "mean-var" else size_global_env_decoder_vocab * 16,
-                out_features=4096
-            ),  # Mean, var per token
-            nn.BatchNorm1d(4096),
-            nn.ReLU(),
-            nn.Linear(in_features=4096, out_features=reduction_b_z_dim),
-        )
+        if mode == "pre-training-traj-env" or reduction_feature_aggregation == "traj-env":
+            self.projection_head = nn.Sequential(
+                nn.Linear(
+                    in_features=dim_global_env_decoder * 2,
+                    out_features=1024
+                ),  # Mean, var per token
+                nn.BatchNorm1d(1024),
+                nn.ReLU(),
+                nn.Linear(in_features=1024, out_features=reduction_b_z_dim),
+            )
+        else:
+            self.projection_head = nn.Sequential(
+                nn.Linear(
+                    in_features=size_global_env_decoder_vocab * 2 if reduction_feature_aggregation == "mean-var" else size_global_env_decoder_vocab * 16,
+                    out_features=4096
+                ),  # Mean, var per token
+                nn.BatchNorm1d(4096),
+                nn.ReLU(),
+                nn.Linear(in_features=4096, out_features=reduction_b_z_dim),
+            )
         self.reduction_loss= BarlowTwinsLoss(
             batch_size=batch_size, lambda_coeff=5e-3, z_dim=reduction_b_z_dim
         )
@@ -729,8 +740,32 @@ class RedMotionCrossFusion(pl.LightningModule):
             loss = self.reduction_loss(z_a, z_b)
 
             return loss
+        
+        # Learn the global env rep in a way that guides the future traj, by matching to past traj --> matches the reduction theme
+        elif self.mode == "pre-training-traj-env": # Project trajectory and corresponding env into shared embedding space (sim. PreTraM)
+            ego_trajectory_tokens = self.ego_trajectory_encoder(
+                ego_idxs_semantic_embedding, ego_pos_src_tokens
+            )
+            road_env_tokens_b = self.road_env_encoder(
+                env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask,
+            )
+            global_env_tokens_b = self.global_env_decoder(
+                global_env_tgt, road_env_tokens_b, env_src_mask
+            )
+            y_a = torch.concat(
+                (ego_trajectory_tokens.mean(dim=1), ego_trajectory_tokens.var(dim=1)), dim=1
+            )
+            y_b = torch.concat(
+                (global_env_tokens_b.mean(dim=1), global_env_tokens_b.var(dim=1)), dim=1
+            )
 
+            z_a = self.projection_head(y_a)
+            z_b = self.projection_head(y_b)
 
+            loss = self.reduction_loss(z_a, z_b)
+
+            return loss
+        
         ego_trajectory_tokens = self.ego_trajectory_encoder(
             ego_idxs_semantic_embedding, ego_pos_src_tokens
         )
@@ -812,7 +847,7 @@ class RedMotionCrossFusion(pl.LightningModule):
             ) : self.prediction_horizon : self.prediction_subsampling_rate,
         ]
 
-        if self.mode == "pre-training":
+        if self.mode.startswith("pre-training"):
             loss = self.forward(
                 env_idxs_src_tokens,
                 env_pos_src_tokens,
