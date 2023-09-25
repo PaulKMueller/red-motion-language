@@ -45,7 +45,7 @@ def main(
     ]
 
     model = TransformerMotionPredictor(
-        dim_road_env_encoder=256,
+        dim_road_env_encoder=192, # 256
         dim_road_env_attn_window=16,
         dim_ego_trajectory_encoder=128,
         num_trajectory_proposals=num_trajectory_proposals,
