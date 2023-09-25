@@ -29,6 +29,7 @@ def main(
     run_prefix: str = "scratch",
     train_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/train-300k",
     val_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/val",
+    reduction_feature_aggregation: str = "mean-var",
 ):
     start_time = datetime.utcnow().replace(microsecond=0).isoformat()
     model_name = "red_motion"
@@ -89,6 +90,7 @@ def main(
             learning_rate=lr,
             batch_size=batch_size,
             prediction_subsampling_rate=prediction_subsampling_rate,
+            reduction_feature_aggregation=reduction_feature_aggregation,
         )
     elif run_prefix == "pre-training":
         model = RedMotionCrossFusion(
@@ -115,6 +117,18 @@ def main(
             mode="pre-training",
             reduction_feature_aggregation="learned",
         )
+    elif run_prefix == "pre-training-traj-env":
+        model = RedMotionCrossFusion(
+            dim_road_env_encoder=128,
+            dim_road_env_attn_window=16,
+            dim_ego_trajectory_encoder=128,
+            num_trajectory_proposals=num_trajectory_proposals,
+            prediction_horizon=prediction_horizon,
+            learning_rate=lr,
+            batch_size=batch_size,
+            prediction_subsampling_rate=prediction_subsampling_rate,
+            mode="pre-training-traj-env",
+        )
     else:
         model = REDMotionPredictor(
             dim_road_env_encoder=256,
@@ -125,6 +139,7 @@ def main(
             learning_rate=lr,
             batch_size=batch_size,
             prediction_subsampling_rate=prediction_subsampling_rate,
+            reduction_feature_aggregation=reduction_feature_aggregation,
         )
 
     lr_monitor = LearningRateMonitor(logging_interval="epoch")

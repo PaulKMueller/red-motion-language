@@ -277,6 +277,7 @@ def run_waymo_eval_per_class(
         model.range_global_decoder_embedding = torch.arange(100).expand(
             1, 100
         )
+        model.mode = "fine-tuning"
 
     res_per_class = pd.DataFrame()
     n_prediction_horizons = len(prediction_horizons)
@@ -308,12 +309,21 @@ def run_waymo_eval_per_class(
                     ].to(device)
 
                     confidences_logits, logits = model(
-                        env_idxs_src_tokens,
-                        env_pos_src_tokens,
-                        env_src_mask,
-                        ego_idxs_semantic_embedding,
-                        ego_pos_src_tokens,
+                        env_idxs_src_tokens=env_idxs_src_tokens,
+                        env_pos_src_tokens=env_pos_src_tokens,
+                        env_src_mask=env_src_mask,
+                        ego_idxs_semantic_embedding=ego_idxs_semantic_embedding,
+                        ego_pos_src_tokens=ego_pos_src_tokens,
+                        env_idxs_src_tokens_b=None,
+                        env_pos_src_tokens_b=None,
                     )
+                    # env_idxs_src_tokens: Tensor,
+                    # env_pos_src_tokens: Tensor,
+                    # env_idxs_src_tokens_b: Tensor,
+                    # env_pos_src_tokens_b: Tensor,
+                    # env_src_mask: Tensor,
+                    # ego_idxs_semantic_embedding: Tensor,
+                    # ego_pos_src_tokens: Tensor,
                 else:
                     x, y, is_available, _ = batch
                     x, y, is_available = map(lambda x: x.to(device), (x, y, is_available))
