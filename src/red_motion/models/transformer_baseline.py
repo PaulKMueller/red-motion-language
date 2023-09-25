@@ -60,6 +60,8 @@ class TransformerMotionPredictor(pl.LightningModule):
         env_src_mask: Tensor,
         ego_idxs_semantic_embedding: Tensor,
         ego_pos_src_tokens: Tensor,
+        env_idxs_src_tokens_b=None,
+        env_pos_src_tokens_b=None,
     ):
         road_env_tokens = self.road_env_encoder(
             env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
