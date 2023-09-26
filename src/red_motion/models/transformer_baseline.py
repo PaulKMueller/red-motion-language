@@ -7,8 +7,10 @@ from .road_env_description import (
     LocalTransformerEncoder,
     EgoTrajectoryEncoder,
     REDFusionBlock,
+    LocalTransformerEncoderLayer,
 )
 from .dual_motion_vit import pytorch_neg_multi_log_likelihood_batch
+from .pretram import get_pretram_loss, get_mcl_loss
 
 
 class TransformerMotionPredictor(pl.LightningModule):
@@ -23,6 +25,8 @@ class TransformerMotionPredictor(pl.LightningModule):
         epochs=190,
         prediction_subsampling_rate=1,
         num_fusion_layers=6,
+        mode: str = "fine-tuning",
+        dim_z: int = 512,
     ) -> None:
         super().__init__()
         self.num_trajectory_proposals = num_trajectory_proposals
@@ -30,6 +34,7 @@ class TransformerMotionPredictor(pl.LightningModule):
         self.prediction_subsampling_rate = prediction_subsampling_rate
         self.lr = learning_rate
         self.epochs = epochs
+        self.mode = mode
 
         self.road_env_encoder = LocalRoadEnvEncoder(
             dim_model=dim_road_env_encoder,
@@ -52,6 +57,47 @@ class TransformerMotionPredictor(pl.LightningModule):
                 + num_trajectory_proposals,
             ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
         )
+        # TODO: PreTraM pre-training
+        if self.mode == "pre-training-pretram":
+            # self.env_to_traj_projection = nn.Linear(in_features=dim_road_env_encoder, out_features=dim_ego_trajectory_encoder)
+            self.env_projector = nn.Sequential(
+                nn.Linear(
+                    in_features=dim_road_env_encoder,
+                    out_features=1024
+                ),
+                nn.BatchNorm1d(1024),
+                nn.ReLU(),
+                nn.Linear(in_features=1024, out_features=dim_z),
+            )
+            self.traj_projector = nn.Sequential(
+                nn.Linear(
+                    # in_features=dim_ego_trajectory_encoder,
+                    in_features=dim_road_env_encoder,
+                    out_features=1024
+                ),
+                nn.BatchNorm1d(1024),
+                nn.ReLU(),
+                nn.Linear(in_features=1024, out_features=dim_z),
+            )
+        elif self.mode == "pre-training-pretram-mcl":
+            self.env_projector = nn.Sequential(
+                nn.Linear(
+                    in_features=dim_road_env_encoder,
+                    out_features=1024
+                ),
+                nn.BatchNorm1d(1024),
+                nn.ReLU(),
+                nn.Linear(in_features=1024, out_features=dim_z),
+            )
+        
+        # TODO: Traj-MAE pre-training
+        # TODO: GraphDINO pre-training
+    
+    def masked_mean_aggregation(self, token_set, mask):
+        denominator = torch.sum(mask, -1, keepdim=True)
+        feats = torch.sum(token_set * mask.unsqueeze(-1), dim=1) / denominator
+        
+        return feats
 
     def forward(
         self,
@@ -66,9 +112,49 @@ class TransformerMotionPredictor(pl.LightningModule):
         road_env_tokens = self.road_env_encoder(
             env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
         )
+        
+        if self.mode == "pre-training-pretram-mcl":
+            road_env_tokens_b = self.road_env_encoder(
+                env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask
+            )
+            road_env_y_a = self.masked_mean_aggregation(
+                road_env_tokens, env_src_mask
+            )
+            road_env_y_b = self.masked_mean_aggregation(
+                road_env_tokens_b, env_src_mask
+            )
+
+            road_env_z_a = self.env_projector(road_env_y_a)
+            road_env_z_b = self.env_projector(road_env_y_b)
+            
+            loss = get_mcl_loss(road_env_z_a, road_env_z_b, temperature=0.07)
+
+            return loss
+        
         ego_trajectory_tokens = self.ego_trajectory_encoder(
             ego_idxs_semantic_embedding, ego_pos_src_tokens
         )
+
+        if self.mode == "pre-training-pretram":
+            road_env_tokens_b = self.road_env_encoder(
+                env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask
+            )
+            road_env_y_a = self.masked_mean_aggregation(
+                road_env_tokens, env_src_mask
+            )
+            road_env_y_b = self.masked_mean_aggregation(
+                road_env_tokens_b, env_src_mask
+            )
+            traj_y = ego_trajectory_tokens.mean(dim=1)
+
+            road_env_z_a = self.env_projector(road_env_y_a)
+            road_env_z_b = self.env_projector(road_env_y_b)
+            traj_z = self.traj_projector(traj_y)
+            
+            loss = get_pretram_loss(road_env_z_a, road_env_z_b, traj_z)
+
+            return loss
+        
         fused_tokens = self.fusion_block(
             q=ego_trajectory_tokens,
             k=road_env_tokens,
@@ -101,6 +187,21 @@ class TransformerMotionPredictor(pl.LightningModule):
             "idx_semantic_embedding"
         ]
         ego_pos_src_tokens = batch["past_ego_trajectory"]["pos_src_tokens"]
+
+        if self.mode.startswith("pre-training-pretram"):
+            env_idxs_src_tokens_b = batch["sample_b"]["idx_src_tokens"]
+            env_pos_src_tokens_b = batch["sample_b"]["pos_src_tokens"]
+
+            loss = self.forward(
+                env_idxs_src_tokens,
+                env_pos_src_tokens,
+                env_src_mask,
+                ego_idxs_semantic_embedding,
+                ego_pos_src_tokens,
+                env_idxs_src_tokens_b,
+                env_pos_src_tokens_b
+            )
+            return loss
 
         y = y[
             :,

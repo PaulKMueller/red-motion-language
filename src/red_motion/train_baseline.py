@@ -27,6 +27,7 @@ def main(
     run_prefix: str = "scratch",
     train_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/train-300k",
     val_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/val",
+    training_mode: str = "training",
 ):
     start_time = datetime.utcnow().replace(microsecond=0).isoformat()
     model_name = "baseline"
@@ -52,6 +53,7 @@ def main(
         prediction_horizon=prediction_horizon,
         learning_rate=lr,
         prediction_subsampling_rate=prediction_subsampling_rate,
+        mode=training_mode,
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
@@ -86,26 +88,27 @@ def main(
             f"{save_dir}/models/{run_prefix}-{model_name}-{start_time}.pt",
         )
 
-        if prediction_horizon > 50:
-            prediction_horizons = [30, 50, prediction_horizon]
-        else:
-            prediction_horizons = [30, 50]
+        if not run_prefix.startswith("pre-training"):
+            if prediction_horizon > 50:
+                prediction_horizons = [30, 50, prediction_horizon]
+            else:
+                prediction_horizons = [30, 50]
 
-        pred_metrics, pred_metrics_per_class = run_waymo_eval_per_class(
-            model=model,
-            data=val_path,
-            prediction_horizons=prediction_horizons,
-            red_model=True,
-            prediction_subsampling_rate=prediction_subsampling_rate,
-        )
-        loggers[1].log_table(
-            key="motion_prediction_eval",
-            dataframe=pred_metrics
-        )
-        loggers[1].log_table(
-            key="motion_prediction_eval_per_class",
-            dataframe=pred_metrics_per_class
-        )
+            pred_metrics, pred_metrics_per_class = run_waymo_eval_per_class(
+                model=model,
+                data=val_path,
+                prediction_horizons=prediction_horizons,
+                red_model=True,
+                prediction_subsampling_rate=prediction_subsampling_rate,
+            )
+            loggers[1].log_table(
+                key="motion_prediction_eval",
+                dataframe=pred_metrics
+            )
+            loggers[1].log_table(
+                key="motion_prediction_eval_per_class",
+                dataframe=pred_metrics_per_class
+            )
 
 
 if __name__ == "__main__":
