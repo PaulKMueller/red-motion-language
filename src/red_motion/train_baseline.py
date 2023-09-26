@@ -80,6 +80,9 @@ def main(
         train_limit=train_sample_limit,
     )
 
+    if training_mode == "pre-training-graph-dino":
+        model.copy_graph_dino_teacher()
+
     trainer.fit(model, datamodule=dm)
 
     if trainer.is_global_zero:

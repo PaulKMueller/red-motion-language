@@ -1,3 +1,4 @@
+import copy
 import torch
 import pytorch_lightning as pl
 
@@ -11,6 +12,7 @@ from .road_env_description import (
 )
 from .dual_motion_vit import pytorch_neg_multi_log_likelihood_batch
 from .pretram import get_pretram_loss, get_mcl_loss
+from .graph_dino import get_graph_dino_loss, update_moving_average, ExponentialMovingAverage
 
 
 class TransformerMotionPredictor(pl.LightningModule):
@@ -27,6 +29,7 @@ class TransformerMotionPredictor(pl.LightningModule):
         num_fusion_layers=6,
         mode: str = "fine-tuning",
         dim_z: int = 512,
+        batch_size: int = 96,
     ) -> None:
         super().__init__()
         self.num_trajectory_proposals = num_trajectory_proposals
@@ -91,13 +94,25 @@ class TransformerMotionPredictor(pl.LightningModule):
             )
         
         # TODO: Traj-MAE pre-training
+
         # TODO: GraphDINO pre-training
+        elif self.mode == "pre-training-graph-dino":
+            self.graph_dino_env_teacher = nn.Module() # placeholder
+            self.teacher_ema_updater = ExponentialMovingAverage()
+            self.teacher_centering_ema_updater = ExponentialMovingAverage(decay=0.9)
+            self.register_buffer('teacher_centers', torch.zeros(1, dim_road_env_encoder))
+            self.register_buffer('previous_centers',  torch.zeros(1, dim_road_env_encoder))
     
     def masked_mean_aggregation(self, token_set, mask):
         denominator = torch.sum(mask, -1, keepdim=True)
         feats = torch.sum(token_set * mask.unsqueeze(-1), dim=1) / denominator
         
         return feats
+
+    def copy_graph_dino_teacher(self):
+        self.graph_dino_env_teacher = copy.deepcopy(self.road_env_encoder)
+        for p in self.graph_dino_env_teacher.parameters():
+            p.requires_grad = False
 
     def forward(
         self,
@@ -130,7 +145,35 @@ class TransformerMotionPredictor(pl.LightningModule):
             loss = get_mcl_loss(road_env_z_a, road_env_z_b, temperature=0.07)
 
             return loss
-        
+        elif self.mode == "pre-training-graph-dino":
+            road_env_tokens_b = self.road_env_encoder(
+                env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask
+            )
+
+            with torch.no_grad():
+                teacher_road_env_tokens = self.graph_dino_env_teacher(
+                    env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
+                )
+                teacher_road_env_tokens_b = self.graph_dino_env_teacher(
+                    env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask
+                )
+
+            teacher_logits_avg = torch.concat(
+                (teacher_road_env_tokens, teacher_road_env_tokens_b), dim=0
+            ).mean(dim=1).mean(dim=0) # mean(dim=1): tokens to logits, mean(dim=0): mean of logits
+
+            self.previous_centers.copy_(teacher_logits_avg)
+
+            loss_a = get_graph_dino_loss(
+                teacher_road_env_tokens.mean(dim=1), road_env_tokens_b.mean(dim=1), self.teacher_centers
+            )
+            loss_b = get_graph_dino_loss(
+                teacher_road_env_tokens_b.mean(dim=1), road_env_tokens.mean(dim=1), self.teacher_centers
+            )
+            loss = (loss_a + loss_b) / 2
+
+            return loss
+
         ego_trajectory_tokens = self.ego_trajectory_encoder(
             ego_idxs_semantic_embedding, ego_pos_src_tokens
         )
@@ -188,7 +231,7 @@ class TransformerMotionPredictor(pl.LightningModule):
         ]
         ego_pos_src_tokens = batch["past_ego_trajectory"]["pos_src_tokens"]
 
-        if self.mode.startswith("pre-training-pretram"):
+        if self.mode.startswith("pre-training"):
             env_idxs_src_tokens_b = batch["sample_b"]["idx_src_tokens"]
             env_pos_src_tokens_b = batch["sample_b"]["pos_src_tokens"]
 
@@ -233,6 +276,17 @@ class TransformerMotionPredictor(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss = self._shared_step(batch, batch_idx)
         self.log("train_loss", loss, sync_dist=True)
+
+        if self.mode == "pre-training-graph-dino":
+            new_teacher_centers = update_moving_average(
+                self.teacher_ema_updater,
+                self.graph_dino_env_teacher,
+                self.road_env_encoder,
+                self.teacher_centers,
+                self.previous_centers,
+                self.teacher_centering_ema_updater,
+            )
+            self.teacher_centers.copy_(new_teacher_centers)
 
         return loss
 
