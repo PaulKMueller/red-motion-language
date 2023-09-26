@@ -1,6 +1,7 @@
 import copy
 import torch
 import pytorch_lightning as pl
+import torch.nn.functional as F
 
 from torch import nn, Tensor
 
@@ -13,6 +14,7 @@ from .road_env_description import (
 from .dual_motion_vit import pytorch_neg_multi_log_likelihood_batch
 from .pretram import get_pretram_loss, get_mcl_loss
 from .graph_dino import get_graph_dino_loss, update_moving_average, ExponentialMovingAverage
+from .traj_mae import mask_road_env_tokens
 
 
 class TransformerMotionPredictor(pl.LightningModule):
@@ -29,7 +31,6 @@ class TransformerMotionPredictor(pl.LightningModule):
         num_fusion_layers=6,
         mode: str = "fine-tuning",
         dim_z: int = 512,
-        batch_size: int = 96,
     ) -> None:
         super().__init__()
         self.num_trajectory_proposals = num_trajectory_proposals
@@ -42,6 +43,7 @@ class TransformerMotionPredictor(pl.LightningModule):
         self.road_env_encoder = LocalRoadEnvEncoder(
             dim_model=dim_road_env_encoder,
             dim_attn_window_encoder=dim_road_env_attn_window,
+            mode="traj-mae" if mode == "pre-training-traj-mae" else "default",
         )
         self.ego_trajectory_encoder = EgoTrajectoryEncoder(
             dim_model=dim_ego_trajectory_encoder,
@@ -94,6 +96,13 @@ class TransformerMotionPredictor(pl.LightningModule):
             )
         
         # TODO: Traj-MAE pre-training
+        elif self.mode == "pre-training-traj-mae":
+            self.traj_mae_decoder = LocalTransformerEncoder(
+                num_layers=3,
+                dim_model=dim_road_env_encoder,
+                dim_attn_window=dim_road_env_attn_window,
+                dim_feedforward=dim_road_env_encoder * 4,
+            )
 
         # TODO: GraphDINO pre-training
         elif self.mode == "pre-training-graph-dino":
@@ -124,6 +133,15 @@ class TransformerMotionPredictor(pl.LightningModule):
         env_idxs_src_tokens_b=None,
         env_pos_src_tokens_b=None,
     ):
+        if self.mode == "pre-training-traj-mae":
+            road_env_tokens, initial_road_env_tokens = self.road_env_encoder(
+                env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
+            )
+            reconstructed_env_tokens = self.traj_mae_decoder(road_env_tokens, env_src_mask)
+            loss = F.mse_loss(initial_road_env_tokens, reconstructed_env_tokens)
+
+            return loss
+            
         road_env_tokens = self.road_env_encoder(
             env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
         )
@@ -325,6 +343,7 @@ class LocalRoadEnvEncoder(nn.Module):
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
         max_dist: float = 50.0,
+        mode: str = "default",
     ) -> None:
         super().__init__()
         self.encoder_semantic_embedding = nn.Embedding(
@@ -345,6 +364,7 @@ class LocalRoadEnvEncoder(nn.Module):
             dim_feedforward=dim_feedforward,
             dropout=dropout,
         )
+        self.mode = mode
 
     def forward(
         self, idxs_src_tokens: Tensor, pos_src_tokens: Tensor, src_mask: Tensor
@@ -354,5 +374,14 @@ class LocalRoadEnvEncoder(nn.Module):
             (self.encoder_semantic_embedding(idxs_src_tokens), pos_src_tokens), dim=2
         )  # Concat in feature dim
         src = self.to_dim_model(src)
+
+        if self.mode == "traj-mae":
+            masked_idxs_src_tokens = mask_road_env_tokens(torch.clone(idxs_src_tokens))
+            src_masked = torch.concat(
+                (self.encoder_semantic_embedding(masked_idxs_src_tokens), pos_src_tokens), dim=2
+            )  # Concat in feature dim
+            src_masked = self.to_dim_model(src_masked)
+
+            return self.encoder(src_masked, src_mask), src
 
         return self.encoder(src, src_mask)
