@@ -20,7 +20,7 @@ def main(
     save_dir: str = "./",
     train_hours: float = 4.5,
     pre_training_checkpoint: str = "",
-    prediction_subsampling_rate: int = 2,
+    prediction_subsampling_rate: int = 5,
     train_sample_limit: int = -1,
     num_nodes: int = 1,
     num_gpus: int = 4,
@@ -129,6 +129,18 @@ def main(
             prediction_subsampling_rate=prediction_subsampling_rate,
             mode="pre-training-traj-env",
         )
+    elif run_prefix == "pre-training-red-mae":
+        model = RedMotionCrossFusion(
+            dim_road_env_encoder=128,
+            dim_road_env_attn_window=16,
+            dim_ego_trajectory_encoder=128,
+            num_trajectory_proposals=num_trajectory_proposals,
+            prediction_horizon=prediction_horizon,
+            learning_rate=lr,
+            batch_size=batch_size,
+            prediction_subsampling_rate=prediction_subsampling_rate,
+            mode="pre-training-red-mae",
+        )
     else:
         model = REDMotionPredictor(
             dim_road_env_encoder=256,
@@ -145,7 +157,9 @@ def main(
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
 
     if pre_training_checkpoint:
-        model.load_state_dict(torch.load(pre_training_checkpoint), strict=False)
+        state_dict = torch.load(pre_training_checkpoint)
+        state_dict_no_head = {key: state_dict[key] for key in state_dict if not key.startswith("motion_head")}
+        model.load_state_dict(state_dict_no_head, strict=False)
 
     trainer = Trainer(
         precision=16,
