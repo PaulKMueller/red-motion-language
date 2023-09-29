@@ -1,5 +1,6 @@
 import torch
 import pytorch_lightning as pl
+import torch.nn.functional as F
 
 from torch import nn, Tensor
 
@@ -672,6 +673,19 @@ class RedMotionCrossFusion(pl.LightningModule):
                 nn.ReLU(),
                 nn.Linear(in_features=1024, out_features=reduction_b_z_dim),
             )
+        elif mode == "pre-training-red-mae":
+            self.road_env_encoder.mode = "traj-mae"
+            self.global_mae_decoder = LocalTransformerEncoder(
+                num_layers=3,
+                dim_model=dim_road_env_encoder,
+                dim_attn_window=dim_road_env_attn_window,
+                dim_feedforward=dim_road_env_encoder * 4,
+            )
+            self.global_recon_seeds = nn.Embedding(
+                num_embeddings=1200 - size_global_env_decoder_vocab, # Max num - global tokens
+                embedding_dim=dim_global_env_decoder,
+            )
+            self.range_global_recon_seeds = torch.arange(1200 - size_global_env_decoder_vocab).expand(batch_size, 1200 - size_global_env_decoder_vocab)
         else:
             self.projection_head = nn.Sequential(
                 nn.Linear(
@@ -696,6 +710,47 @@ class RedMotionCrossFusion(pl.LightningModule):
         ego_idxs_semantic_embedding: Tensor,
         ego_pos_src_tokens: Tensor,
     ):
+        if self.mode == "pre-training-red-mae":
+            road_env_tokens, initial_road_env_tokens = self.road_env_encoder(
+                env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
+            )
+
+            self.range_global_decoder_embedding = self.range_global_decoder_embedding.to("cuda")
+
+            global_env_tgt = torch.concat(
+                (
+                    self.decoder_semantic_embedding(self.range_global_decoder_embedding),
+                    self.decoder_pos_embedding(self.range_global_decoder_embedding),
+                ),
+                dim=2,
+            )
+            global_env_tokens = self.global_env_decoder(
+                global_env_tgt, road_env_tokens, env_src_mask
+            )
+            road_env_tokens_b, initial_road_env_tokens_b = self.road_env_encoder(
+                env_idxs_src_tokens_b, env_pos_src_tokens_b, env_src_mask,
+            )
+            global_env_tokens_b = self.global_env_decoder(
+                global_env_tgt, road_env_tokens_b, env_src_mask
+            )
+            self.range_global_recon_seeds = self.range_global_recon_seeds.to("cuda")
+            
+            recon_global_env_tokens_a = torch.concat(
+                (global_env_tokens, self.global_recon_seeds(self.range_global_recon_seeds)), dim=1, # To get to max num of tokens
+            )
+            recon_global_env_tokens_b = torch.concat(
+                (global_env_tokens_b, self.global_recon_seeds(self.range_global_recon_seeds)), dim=1, # To get to max num of tokens
+            )
+            recon_global_env_tokens_a = self.global_mae_decoder(recon_global_env_tokens_a, env_src_mask)
+            recon_global_env_tokens_b = self.global_mae_decoder(recon_global_env_tokens_b, env_src_mask)
+
+            # Reconstruct cross-wise to enforce redundancy reduction
+            loss_a = F.mse_loss(recon_global_env_tokens_a[env_src_mask], initial_road_env_tokens_b[env_src_mask])
+            loss_b = F.mse_loss(recon_global_env_tokens_b[env_src_mask], initial_road_env_tokens[env_src_mask])
+
+            return loss_a + loss_b
+
+
         road_env_tokens = self.road_env_encoder(
             env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
         )
