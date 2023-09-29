@@ -18,6 +18,7 @@ def main(
     lr: float = 0.01,
     save_dir: str = "./",
     train_hours: float = 4.5,
+    pre_training_checkpoint: str = "",
     prediction_subsampling_rate: int = 1,
     train_sample_limit: int = -1,
     num_nodes: int = 1,
@@ -82,6 +83,9 @@ def main(
 
     if training_mode == "pre-training-graph-dino":
         model.copy_graph_dino_teacher()
+
+    if pre_training_checkpoint:
+        model.load_state_dict(torch.load(pre_training_checkpoint), strict=False)
 
     trainer.fit(model, datamodule=dm)
 
