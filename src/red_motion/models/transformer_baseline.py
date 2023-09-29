@@ -138,7 +138,7 @@ class TransformerMotionPredictor(pl.LightningModule):
                 env_idxs_src_tokens, env_pos_src_tokens, env_src_mask
             )
             reconstructed_env_tokens = self.traj_mae_decoder(road_env_tokens, env_src_mask)
-            loss = F.mse_loss(initial_road_env_tokens, reconstructed_env_tokens)
+            loss = F.mse_loss(initial_road_env_tokens[env_src_mask], reconstructed_env_tokens[env_src_mask])
 
             return loss
             
