@@ -956,3 +956,38 @@ class RedMotionCrossFusion(pl.LightningModule):
                 "name": "lr",
             },
         }
+
+
+def red_motion_inference(model, batch, device="cuda", return_all_numpy=False):
+    model.mode = "fine-tuning"
+    is_available = batch["future_ego_trajectory"]["is_available"].to(device)
+    y = batch["future_ego_trajectory"]["trajectory"].to(device)
+
+    env_idxs_src_tokens = batch["sample_a"]["idx_src_tokens"].to(device)
+    env_pos_src_tokens = batch["sample_a"]["pos_src_tokens"].to(device)
+    env_src_mask = batch["src_attn_mask"].to(device)
+    ego_idxs_semantic_embedding = batch["past_ego_trajectory"][
+        "idx_semantic_embedding"
+    ].to(device)
+    ego_pos_src_tokens = batch["past_ego_trajectory"]["pos_src_tokens"].to(device)
+
+    confidences_logits, logits = model(
+        env_idxs_src_tokens=env_idxs_src_tokens,
+        env_pos_src_tokens=env_pos_src_tokens,
+        env_src_mask=env_src_mask,
+        ego_idxs_semantic_embedding=ego_idxs_semantic_embedding,
+        ego_pos_src_tokens=ego_pos_src_tokens,
+        env_idxs_src_tokens_b=None,
+        env_pos_src_tokens_b=None,
+    )
+    confidences = torch.softmax(confidences_logits, dim=1)
+
+    if not return_all_numpy:
+        return confidences, logits
+    else:
+        logits_np = logits.squeeze(0).cpu().numpy()
+        confidences_np = confidences.squeeze(0).cpu().numpy()
+        is_available_np = is_available.squeeze(0).long().cpu().numpy()
+        y_np = y.squeeze(0).cpu().numpy()
+
+        return logits_np, confidences_np, is_available_np, y_np
