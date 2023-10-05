@@ -1,7 +1,14 @@
 import torch
 
+from torch import Tensor
 
-def get_masked_indices(masking_ratio, num_tokens, batch_size, device):
+
+def get_masked_indices(
+    masking_ratio: float,
+    num_tokens: int,
+    batch_size: int,
+    device: str,
+):
     """Get indices to mask for MAE pre-training
     Adapted from: https://github.com/lucidrains/vit-pytorch/blob/main/vit_pytorch/mae.py
     """
@@ -12,7 +19,11 @@ def get_masked_indices(masking_ratio, num_tokens, batch_size, device):
     return masked_indices
 
 
-def mask_road_env_tokens(semantic_indices, masking_ratio=0.6, idx_pad_token=10):
+def mask_road_env_tokens(
+    semantic_indices: Tensor,
+    masking_ratio: float = 0.6,
+    idx_pad_token: int = 10,
+):
     batch_size, num_tokens = semantic_indices.shape
     device = semantic_indices.device
     masked_indices = get_masked_indices(masking_ratio, num_tokens, batch_size, device)

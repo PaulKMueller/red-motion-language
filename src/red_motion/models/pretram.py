@@ -37,9 +37,9 @@ def get_mcl_loss(map_embeddings_i, map_embeddings_j, temperature):
 
 
 def get_pretram_loss(
-    map_embeddings_i,
-    map_embeddings_j,
-    traj_embeddings,
+    map_embeddings_i: Tensor,
+    map_embeddings_j: Tensor,
+    traj_embeddings: Tensor,
     tmcl_temperature: float = 0.07,
     mcl_temperature: float = 0.07,
     λ: float = 1.0,
