@@ -62,7 +62,6 @@ class TransformerMotionPredictor(pl.LightningModule):
                 + num_trajectory_proposals,
             ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
         )
-        # TODO: PreTraM pre-training
         if self.mode == "pre-training-pretram":
             # self.env_to_traj_projection = nn.Linear(in_features=dim_road_env_encoder, out_features=dim_ego_trajectory_encoder)
             self.env_projector = nn.Sequential(
@@ -95,7 +94,6 @@ class TransformerMotionPredictor(pl.LightningModule):
                 nn.Linear(in_features=1024, out_features=dim_z),
             )
         
-        # TODO: Traj-MAE pre-training
         elif self.mode == "pre-training-traj-mae":
             self.traj_mae_decoder = LocalTransformerEncoder(
                 num_layers=3,
@@ -104,7 +102,6 @@ class TransformerMotionPredictor(pl.LightningModule):
                 dim_feedforward=dim_road_env_encoder * 4,
             )
 
-        # TODO: GraphDINO pre-training
         elif self.mode == "pre-training-graph-dino":
             self.graph_dino_env_teacher = nn.Module() # placeholder
             self.teacher_ema_updater = ExponentialMovingAverage()
