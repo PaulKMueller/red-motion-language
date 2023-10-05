@@ -63,7 +63,6 @@ class TransformerMotionPredictor(pl.LightningModule):
             ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
         )
         if self.mode == "pre-training-pretram":
-            # self.env_to_traj_projection = nn.Linear(in_features=dim_road_env_encoder, out_features=dim_ego_trajectory_encoder)
             self.env_projector = nn.Sequential(
                 nn.Linear(
                     in_features=dim_road_env_encoder,
@@ -75,7 +74,6 @@ class TransformerMotionPredictor(pl.LightningModule):
             )
             self.traj_projector = nn.Sequential(
                 nn.Linear(
-                    # in_features=dim_ego_trajectory_encoder,
                     in_features=dim_road_env_encoder,
                     out_features=1024
                 ),
