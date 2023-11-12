@@ -209,6 +209,7 @@ def run_waymo_eval_per_class(
     model,
     data,
     use_top1=False,
+    use_top6=False,
     prediction_horizons=[30, 50],
     red_model=False,
     n_samples_per_class=5_000,
@@ -333,6 +334,9 @@ def run_waymo_eval_per_class(
                 if use_top1:
                     confidences_logits = confidences_logits[:, argmax].unsqueeze(1)
                     logits = logits[:, argmax].unsqueeze(1)
+                elif use_top6:
+                    confidences_logits, top6_idxs = confidences_logits.topk(6)
+                    logits = logits[0, top6_idxs]
 
                 confidences = torch.softmax(confidences_logits, dim=1)
 
