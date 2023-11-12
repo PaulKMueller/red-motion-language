@@ -21,6 +21,7 @@ def main(
     train_hours: float = 4.5,
     pre_training_checkpoint: str = "",
     prediction_subsampling_rate: int = 5,
+    pred_3_points: bool = False,
     train_sample_limit: int = -1,
     num_nodes: int = 1,
     num_gpus: int = 4,
@@ -91,6 +92,7 @@ def main(
             batch_size=batch_size,
             prediction_subsampling_rate=prediction_subsampling_rate,
             reduction_feature_aggregation=reduction_feature_aggregation,
+            pred_3_points=pred_3_points,
         )
     elif run_prefix == "pre-training":
         model = RedMotionCrossFusion(

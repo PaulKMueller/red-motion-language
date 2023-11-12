@@ -345,6 +345,15 @@ def run_waymo_eval_per_class(
                 is_available_np = is_available.squeeze(0).long().cpu().numpy()
                 confidences_np = confidences.squeeze(0).cpu().numpy()
 
+                trajs = []
+                if model.pred_3_points:
+                    for proposal in logits_np:
+                        point_3s = proposal[0]
+                        point_5s = proposal[1]
+                        point_8s = proposal[2]
+                        trajs.append(linspace_points_to_traj((0, 0), point_3s, point_5s, point_8s))
+                    logits_np = np.concatenate(trajs)
+
                 for idx, prediction_horizon in enumerate(prediction_horizons[::-1]):
                     y_np_sub = y_np[
                         (
@@ -489,3 +498,21 @@ def run_waymo_eval_per_class(
     )
 
     return res, res_per_class
+
+
+def linspace_points_to_traj(p0, p1, p2, p3, steps=[30, 20, 30]):
+    x = np.concatenate(
+        (
+            np.linspace(p0[0], p1[0], steps[0] + 1)[1:],
+            np.linspace(p1[0], p2[0], steps[1] + 1)[1:],
+            np.linspace(p2[0], p3[0], steps[2] + 1)[1:],
+        )
+    )
+    y = np.concatenate(
+        (
+            np.linspace(p0[1], p1[1], steps[0] + 1)[1:],
+            np.linspace(p1[1], p2[1], steps[1] + 1)[1:],
+            np.linspace(p2[1], p3[1], steps[2] + 1)[1:],
+        )
+    )
+    return np.dstack((x, y))

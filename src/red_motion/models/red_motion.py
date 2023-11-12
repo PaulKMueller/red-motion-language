@@ -583,6 +583,7 @@ class RedMotionCrossFusion(pl.LightningModule):
         learning_rate,
         epochs=190,
         prediction_subsampling_rate=1,
+        pred_3_points=False,
         num_fusion_layers=6,
         size_global_env_decoder_vocab=100,
         batch_size=96,
@@ -600,6 +601,7 @@ class RedMotionCrossFusion(pl.LightningModule):
         self.lr = learning_rate
         self.epochs = epochs
         self.mode = mode
+        self.pred_3_points = pred_3_points
 
         self.road_env_encoder = LocalRoadEnvEncoder(
             dim_model=dim_road_env_encoder,
@@ -651,16 +653,26 @@ class RedMotionCrossFusion(pl.LightningModule):
             dim_model=dim_road_env_encoder, num_layers=num_fusion_layers
         )
 
-        self.motion_head = nn.Sequential(
-            nn.LayerNorm((dim_road_env_encoder,), eps=1e-06, elementwise_affine=True),
-            nn.Linear(
-                in_features=dim_road_env_encoder,
-                out_features=num_trajectory_proposals
-                * 2
-                * (prediction_horizon // prediction_subsampling_rate)
-                + num_trajectory_proposals,
-            ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
-        )
+        if pred_3_points:
+            self.motion_head = nn.Sequential(
+                nn.LayerNorm((dim_road_env_encoder,), eps=1e-06, elementwise_affine=True),
+                nn.Linear(
+                    in_features=dim_road_env_encoder,
+                    out_features=num_trajectory_proposals * 3 * 2 + num_trajectory_proposals,
+                ),
+            )
+        else:
+            self.motion_head = nn.Sequential(
+                nn.LayerNorm((dim_road_env_encoder,), eps=1e-06, elementwise_affine=True),
+                nn.Linear(
+                    in_features=dim_road_env_encoder,
+                    out_features=num_trajectory_proposals
+                    * 2
+                    * (prediction_horizon // prediction_subsampling_rate)
+                    + num_trajectory_proposals,
+                ),  # Multiple trajectory proposals with (x, y) every (0.1 sec * subsampling rate) and confidences
+            )
+
         self.reduction_feature_aggregation = reduction_feature_aggregation
         self.learn_reduction_feats = nn.Linear(in_features=dim_global_env_decoder, out_features=16)
         if mode == "pre-training-traj-env" or reduction_feature_aggregation == "traj-env":
@@ -865,12 +877,16 @@ class RedMotionCrossFusion(pl.LightningModule):
             motion_embedding[:, : self.num_trajectory_proposals],
             motion_embedding[:, self.num_trajectory_proposals :],
         )
-        logits = logits.view(
-            -1,
-            self.num_trajectory_proposals,
-            (self.prediction_horizon // self.prediction_subsampling_rate),
-            2,
-        )
+
+        if self.pred_3_points:
+            logits = logits.view(-1, self.num_trajectory_proposals, 3, 2)
+        else:
+            logits = logits.view(
+                -1,
+                self.num_trajectory_proposals,
+                (self.prediction_horizon // self.prediction_subsampling_rate),
+                2,
+            )
 
         return confidences_logits, logits
 
@@ -924,9 +940,15 @@ class RedMotionCrossFusion(pl.LightningModule):
             ego_pos_src_tokens,
         )
 
-        loss = pytorch_neg_multi_log_likelihood_batch(
-            y, logits, confidences_logits, is_available
-        )
+        if self.pred_3_points:
+            loss = pytorch_neg_multi_log_likelihood_batch(
+                y[:, (29, 49, 79)], logits, confidences_logits, is_available[:, (29, 49, 79)]
+            )
+        else:
+            loss = pytorch_neg_multi_log_likelihood_batch(
+                y, logits, confidences_logits, is_available
+            )
+        
         return loss
 
     def training_step(self, batch, batch_idx):
