@@ -31,6 +31,7 @@ def main(
     train_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/train-300k",
     val_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/val",
     reduction_feature_aggregation: str = "mean-var",
+    specific_class: str = '',
 ):
     start_time = datetime.utcnow().replace(microsecond=0).isoformat()
     model_name = "red_motion"
@@ -174,16 +175,41 @@ def main(
         logger=loggers,
         strategy="ddp_find_unused_parameters_true",
     )
-
-    dm = WaymoRoadEnvGraphDataModule(
-        batch_size=batch_size,
-        num_dataloader_workers=12,
-        pin_memory=True,
-        train_path=train_path,
-        val_path=val_path,
-        val_limit=24 * 1000,
-        train_limit=train_sample_limit,
-    )
+    
+    if specific_class == "no-vehicle":
+        dm = WaymoRoadEnvGraphDataModule(
+            batch_size=batch_size,
+            num_dataloader_workers=12,
+            pin_memory=True,
+            train_path=train_path,
+            val_path=val_path,
+            val_limit=24 * 1000,
+            train_limit=train_sample_limit,
+            train_glob_path=f"{train_path}/[pc]*.npz",
+            val_glob_path=f"{val_path}/[pc]*.npz",
+        )
+    elif specific_class:
+        dm = WaymoRoadEnvGraphDataModule(
+            batch_size=batch_size,
+            num_dataloader_workers=12,
+            pin_memory=True,
+            train_path=train_path,
+            val_path=val_path,
+            val_limit=24 * 1000,
+            train_limit=train_sample_limit,
+            train_glob_path=f"{train_path}/{specific_class}*.npz",
+            val_glob_path=f"{val_path}/{specific_class}*.npz",
+        )
+    else:
+        dm = WaymoRoadEnvGraphDataModule(
+            batch_size=batch_size,
+            num_dataloader_workers=12,
+            pin_memory=True,
+            train_path=train_path,
+            val_path=val_path,
+            val_limit=24 * 1000,
+            train_limit=train_sample_limit,
+        )
 
     trainer.fit(model, datamodule=dm)
 
@@ -205,6 +231,7 @@ def main(
                 prediction_horizons=prediction_horizons,
                 red_model=True,
                 prediction_subsampling_rate=prediction_subsampling_rate,
+                specific_class=specific_class, 
             )
             loggers[1].log_table(
                 key="motion_prediction_eval",

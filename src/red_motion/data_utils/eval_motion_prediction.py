@@ -210,17 +210,24 @@ def run_waymo_eval_per_class(
     data,
     use_top1=False,
     use_top6=False,
-    prediction_horizons=[30, 50],
+    prediction_horizons=[30, 50, 80],
     red_model=False,
     n_samples_per_class=5_000,
     prediction_subsampling_rate=1,
     device="cuda",
+    specific_class='',
 ):
     """Agent classes: Vehicle, pedestrian, cyclist"""
     model.to(device)
     model.eval()
 
     class_names = ["vehicle", "pedestrian", "cyclist"]
+
+    if specific_class == "no-vehicle":
+        class_names = ["pedestrian", "cyclist"]
+    elif specific_class:
+        class_names = [specific_class]
+
     vehicle_samples = f"{data}/vehicle*.npz"
     pedestrian_samples = f"{data}/pedestrian*.npz"
     cyclist_samples = f"{data}/cyclist*.npz"
@@ -270,6 +277,16 @@ def run_waymo_eval_per_class(
             shuffle=False,
         )
         data_loaders = [vehicle_loader, pedestrian_loader, cyclist_loader]
+
+        # TODO: better code
+        if specific_class == "vehicle":
+            data_loaders = [vehicle_loader]
+        elif specific_class == "pedestrian":
+            data_loaders = [pedestrian_loader]
+        elif specific_class == "cyclist":
+            data_loaders = [cyclist_loader]
+        elif specific_class == "no-vehicle":
+            data_loaders = [pedestrian_loader, cyclist_loader]
 
         model.road_env_encoder.batch_size = 1
         model.road_env_encoder.range_decoder_embedding = torch.arange(100).expand(

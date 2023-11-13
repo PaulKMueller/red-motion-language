@@ -25,6 +25,8 @@ class WaymoRoadEnvGraphDataModule(pl.LightningDataModule):
         val_path="",
         val_limit=200,
         train_limit=0,
+        train_glob_path="",
+        val_glob_path="",
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -34,6 +36,8 @@ class WaymoRoadEnvGraphDataModule(pl.LightningDataModule):
         self.val_path = val_path
         self.val_limit = val_limit
         self.train_limit = train_limit
+        self.train_glob_path = train_glob_path
+        self.val_glob_path = val_glob_path
 
     def prepare_data(self):
         pass
@@ -41,10 +45,20 @@ class WaymoRoadEnvGraphDataModule(pl.LightningDataModule):
     def setup(self, stage: str):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit":
-            self.train_set = WaymoRoadEnvGraphDataset(
-                self.train_path, limit=self.train_limit
-            )
-            self.val_set = WaymoRoadEnvGraphDataset(self.val_path, limit=self.val_limit)
+            if self.train_glob_path:
+                self.train_set = WaymoRoadEnvGraphDataset(
+                    directory="", glob_path=self.train_glob_path, limit=self.train_limit
+                )
+            else:
+                self.train_set = WaymoRoadEnvGraphDataset(
+                    self.train_path, limit=self.train_limit
+                )
+            if self.val_glob_path:
+                self.val_set = WaymoRoadEnvGraphDataset(
+                    directory="", glob_path=self.val_glob_path, limit=self.val_limit
+                )
+            else:
+                self.val_set = WaymoRoadEnvGraphDataset(self.val_path, limit=self.val_limit)
 
     def train_dataloader(self):
         return DataLoader(
