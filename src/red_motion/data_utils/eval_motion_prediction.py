@@ -13,6 +13,7 @@ from l5kit.evaluation.metrics import (
 )
 
 from data_utils.dataset_modules import WaymoLoader, WaymoRoadEnvGraphDataset
+from data_utils.post_processing import batch_nms
 
 
 def run_eval_dataframe(
@@ -216,6 +217,7 @@ def run_waymo_eval_per_class(
     prediction_subsampling_rate=1,
     device="cuda",
     specific_class='',
+    apply_nms=False,
 ):
     """Agent classes: Vehicle, pedestrian, cyclist"""
     model.to(device)
@@ -356,6 +358,11 @@ def run_waymo_eval_per_class(
                     logits = logits[0, top6_idxs]
 
                 confidences = torch.softmax(confidences_logits, dim=1)
+
+                if apply_nms:
+                    logits, confidences, _ = batch_nms(logits, confidences)
+                
+                confidences = torch.softmax(confidences, dim=1)
 
                 logits_np = logits.squeeze(0).cpu().numpy()
                 y_np = y.squeeze(0).cpu().numpy()

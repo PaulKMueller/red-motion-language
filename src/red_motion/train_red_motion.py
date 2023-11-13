@@ -32,6 +32,7 @@ def main(
     val_path: str = "/p/project/hai_mrt_pc/waymo-open-motion-dataset/motion-cnn/val",
     reduction_feature_aggregation: str = "mean-var",
     specific_class: str = '',
+    apply_nms: bool = False,
 ):
     start_time = datetime.utcnow().replace(microsecond=0).isoformat()
     model_name = "red_motion"
@@ -175,7 +176,7 @@ def main(
         logger=loggers,
         strategy="ddp_find_unused_parameters_true",
     )
-    
+
     if specific_class == "no-vehicle":
         dm = WaymoRoadEnvGraphDataModule(
             batch_size=batch_size,
@@ -231,7 +232,8 @@ def main(
                 prediction_horizons=prediction_horizons,
                 red_model=True,
                 prediction_subsampling_rate=prediction_subsampling_rate,
-                specific_class=specific_class, 
+                specific_class=specific_class,
+                apply_nms=apply_nms,
             )
             loggers[1].log_table(
                 key="motion_prediction_eval",
