@@ -20,7 +20,7 @@ model.load_state_dict(
     torch.load("../../cross-fusion-red_motion-2023-09-27T13-04-03.pt")
 )
 
-model.to("cuda:2")
+model.to("cuda")
 model.eval()
 
 
@@ -62,7 +62,7 @@ from red_motion.data_utils.visualize import plot_marginal_predictions_3d
 
 idx = 1
 
-plot_marginal_predictions_3d(
+plot = plot_marginal_predictions_3d(
     data[idx]["vector_data"],
     predictions=predictions[idx]["logits"],
     x_range=(-20, 50),

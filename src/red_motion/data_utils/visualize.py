@@ -153,6 +153,8 @@ def plot_marginal_predictions_3d(
         markersize=10,
     )
 
+    plt.savefig("test.png")
+
 
 def add_cube(cube_definition, ax, color="b", edgecolor="k", alpha=0.2):
     cube_definition_array = [np.array(list(item)) for item in cube_definition]
